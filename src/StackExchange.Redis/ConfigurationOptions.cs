@@ -11,7 +11,9 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+
 using Microsoft.Extensions.Logging;
+
 using StackExchange.Redis.Configuration;
 
 namespace StackExchange.Redis
@@ -879,7 +881,8 @@ namespace StackExchange.Redis
             commandMap?.AppendDeltas(sb);
             return sb.ToString();
 
-            static string? FormatProtocol(RedisProtocol? protocol) => protocol switch {
+            static string? FormatProtocol(RedisProtocol? protocol) => protocol switch
+            {
                 null => null,
                 RedisProtocol.Resp2 => "resp2",
                 RedisProtocol.Resp3 => "resp3",
@@ -927,6 +930,7 @@ namespace StackExchange.Redis
             ChannelPrefix = default;
             SocketManager = null;
             Tunnel = null;
+            RackAwareness = null;
         }
 
         object ICloneable.Clone() => Clone();
@@ -1161,5 +1165,12 @@ namespace StackExchange.Redis
             protocol = default;
             return false;
         }
+
+#pragma warning disable RS0016 // Add public types and members to the declared API
+        /// <summary>
+        /// zone/rack awareness configuration.
+        /// </summary>
+        public QXExtensions.IRackAwareness? RackAwareness { get; set; }
+#pragma warning restore RS0016 // Add public types and members to the declared API
     }
 }

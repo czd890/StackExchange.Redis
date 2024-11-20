@@ -48,7 +48,7 @@ namespace StackExchange.Redis
         internal CommandMap CommandMap { get; }
         internal EndPointCollection EndPoints { get; }
         internal ConfigurationOptions RawConfig { get; }
-        internal ServerSelectionStrategy ServerSelectionStrategy { get; }
+        internal ServerSelectionStrategy ServerSelectionStrategy { get; set; }
         ServerSelectionStrategy IInternalConnectionMultiplexer.ServerSelectionStrategy => ServerSelectionStrategy;
         ConnectionMultiplexer IInternalConnectionMultiplexer.UnderlyingMultiplexer => this;
 
@@ -146,7 +146,15 @@ namespace StackExchange.Redis
             }
 
             OnCreateReaderWriter(configuration);
-            ServerSelectionStrategy = new ServerSelectionStrategy(this);
+
+            if (configuration.RackAwareness != null && configuration.RackAwareness.GetClientRackId() != null)
+            {
+                ServerSelectionStrategy = new QXExtensions.RackAwarenessServerSelectionStrategy(this);
+            }
+            else
+            {
+                ServerSelectionStrategy = new QXExtensions.SealedServerSelectionStrategy(this);
+            }
 
             var configChannel = configuration.ConfigurationChannel;
             if (!string.IsNullOrWhiteSpace(configChannel))

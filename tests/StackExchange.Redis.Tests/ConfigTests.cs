@@ -69,6 +69,7 @@ public class ConfigTests : TestBase
                 "password",
                 "Protocol",
                 "proxy",
+                "RackAwareness",
                 "reconnectRetryPolicy",
                 "resolveDns",
                 "responseTimeout",
