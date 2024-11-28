@@ -250,7 +250,7 @@ public class RackAwarenessServerSelectionStrategyTests : TestBase
 
     private RackAwarenessServerSelectionStrategy CreateStandaloneTarget(string clientRackId)
     {
-        var multiplexer = Create(log: Writer).UnderlyingMultiplexer;
+        var multiplexer = Create(shared: false, log: Writer).UnderlyingMultiplexer;
         multiplexer.RawConfig.RackAwareness = new MyRackAwareness(clientRackId);
 
         var testBridge = multiplexer.GetServerSnapshot()[0].GetBridge(ConnectionType.Interactive, true)!;
