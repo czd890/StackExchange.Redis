@@ -52,54 +52,41 @@ internal sealed class RackAwarenessServerSelectionStrategy : ServerSelectionStra
 
         if (endpoint != null)
         {
+            testing = endpoint;
             switch (flags)
             {
                 case CommandFlags.DemandReplica:
-                    return FindReplicaWithRackAware(endpoint, command) ?? Any(command, flags, allowDisconnected);
+                    testing = FindRackEndPoint(endpoint, command, false, allowDisconnected);
+                    break;
                 case CommandFlags.PreferReplica:
-                    testing = FindReplicaWithRackAware(endpoint, command);
-                    if (testing is not null) return testing;
+                    testing = FindRackEndPoint(endpoint, command, true, allowDisconnected);
                     break;
                 case CommandFlags.DemandMaster:
-                    return FindPrimary(endpoint, command) ?? Any(command, flags, allowDisconnected);
+                    testing = FindPrimary(endpoint, command);
+                    break;
                 case CommandFlags.PreferMaster:
                     testing = FindPrimary(endpoint, command);
-                    if (testing is not null) return testing;
                     break;
             }
+            if (testing != null) return testing;
             if (endpoint.IsSelectable(command, allowDisconnected)) return endpoint;
         }
         return Any(command, flags, allowDisconnected);
     }
 
-    private ServerEndPoint? FindReplicaWithRackAware(ServerEndPoint endpoint, RedisCommand command, bool allowDisconnected = false)
+    private ServerEndPoint? FindRackEndPoint(ServerEndPoint mainEndpoint, RedisCommand command, bool anyRack, bool allowDisconnected)
     {
-        ServerEndPoint? mainEndpoint = endpoint;
-        if (endpoint.IsReplica)
-        {
-            if (IsInSameRack(endpoint) != false)
-            {
-                return endpoint;
-            }
-            mainEndpoint = endpoint.Primary;
-            if (mainEndpoint == null)
-            {
-                return default;
-            }
-        }
-
-        ServerEndPoint? fallback = null;
         var replicas = mainEndpoint.Replicas;
         var len = replicas.Length;
-        uint startOffset = len <= 1 ? 0 : endpoint.NextReplicaOffset();
+        uint startOffset = len <= 1 ? 0 : mainEndpoint.NextReplicaOffset();
+        ServerEndPoint? fallback = null;
         for (int i = 0; i < len; i++)
         {
-            endpoint = replicas[(int)(((uint)i + startOffset) % len)];
+            var endpoint = replicas[(int)(((uint)i + startOffset) % len)];
             if (endpoint.IsReplica && endpoint.IsSelectable(command, allowDisconnected))
             {
-                if (IsInSameRack(endpoint) != false)
+                if (IsInSameRack(endpoint) == true)
                 {
-                    // is in same rack
                     return endpoint;
                 }
                 else
@@ -108,16 +95,23 @@ internal sealed class RackAwarenessServerSelectionStrategy : ServerSelectionStra
                 }
             }
         }
+
+        if (anyRack && mainEndpoint.IsSelectable(command, allowDisconnected) && (IsInSameRack(mainEndpoint) == true))
+        {
+            return mainEndpoint;
+        }
         return fallback;
     }
 
-    private ServerEndPoint? Any(RedisCommand command, CommandFlags flags, bool allowDisconnected) =>
-          AnyServerWithRackAware(ServerType, (uint)Interlocked.Increment(ref anyStartOffset), command, flags, allowDisconnected);
-    private ServerEndPoint? AnyServerWithRackAware(ServerType serverType, uint startOffset, RedisCommand command, CommandFlags flags, bool allowDisconnected)
+    private ServerEndPoint? Any(RedisCommand command, CommandFlags flags, bool allowDisconnected) => AnyServerWithRack(ServerType, (uint)Interlocked.Increment(ref anyStartOffset), command, flags, allowDisconnected);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal ServerEndPoint? AnyServerWithRack(ServerType serverType, uint startOffset, RedisCommand command, CommandFlags flags, bool allowDisconnected)
     {
         var tmp = multiplexer.GetServerSnapshot();
         int len = tmp.Length;
         ServerEndPoint? fallback = null;
+        ServerEndPoint? fallback2 = null;
         for (int i = 0; i < len; i++)
         {
             var server = tmp[(int)(((uint)i + startOffset) % len)];
@@ -129,9 +123,16 @@ internal sealed class RackAwarenessServerSelectionStrategy : ServerSelectionStra
                     {
                         case CommandFlags.DemandReplica:
                         case CommandFlags.PreferReplica:
-                            return FindReplicaWithRackAware(server, command, allowDisconnected) ?? server;
+                            if (IsInSameRack(server) == true)
+                                return server;
+                            else
+                                fallback = server;
+                            break;
                         case CommandFlags.PreferMaster:
-                            fallback = server;
+                            if (IsInSameRack(server) == true)
+                                fallback2 = server;
+                            else if (fallback == null)
+                                fallback = server;
                             break;
                     }
                 }
@@ -141,16 +142,23 @@ internal sealed class RackAwarenessServerSelectionStrategy : ServerSelectionStra
                     {
                         case CommandFlags.DemandMaster:
                         case CommandFlags.PreferMaster:
-                            return server;
+                            if (IsInSameRack(server) == true)
+                                return server;
+                            else
+                                fallback = server;
+                            break;
                         case CommandFlags.PreferReplica:
-                            fallback = server;
+                            if (IsInSameRack(server) == true)
+                                fallback2 = server;
+                            else if (fallback == null) fallback = server;
                             break;
                     }
                 }
             }
         }
-        return fallback;
+        return fallback2 ?? fallback;
     }
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool? IsInSameRack(ServerEndPoint endpoint)
     {
