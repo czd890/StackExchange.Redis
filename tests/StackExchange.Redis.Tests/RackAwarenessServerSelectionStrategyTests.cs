@@ -1,11 +1,11 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
-
-using Moq;
 
 using StackExchange.Redis.QXExtensions;
 
@@ -13,7 +13,7 @@ using Xunit;
 using Xunit.Abstractions;
 
 namespace StackExchange.Redis.Tests;
-#if NET6_0_OR_GREATER
+#if NET8_0_OR_GREATER
 [Collection(SharedConnectionFixture.Key)]
 public class RackAwarenessServerSelectionStrategyTests : TestBase
 {
@@ -26,7 +26,7 @@ public class RackAwarenessServerSelectionStrategyTests : TestBase
         {
             clientRackId = rackId;
         }
-        private readonly Dictionary<IPEndPoint, string> rackIdMap = new()
+        private readonly Dictionary<EndPoint, string> rackIdMap = new()
         {
             { IPEndPoint.Parse("172.16.1.1"), "1a" },
             { IPEndPoint.Parse("172.16.1.2"), "1b" },
@@ -50,6 +50,8 @@ public class RackAwarenessServerSelectionStrategyTests : TestBase
             }
             return default;
         }
+
+        public string? GetRackId(IServer server) => rackIdMap.TryGetValue(server.EndPoint, out var rackId) ? rackId : null;
     }
 
     private RedisKey GetRedisKey(int slot)
@@ -144,12 +146,14 @@ public class RackAwarenessServerSelectionStrategyTests : TestBase
     [InlineData("1c", "172.16.1.3")]
     public void SelectServer_Standalone_PreferReplica_MatchedRackId(string clientRackId, string readNodes)
     {
-        var target = CreateStandaloneTarget(clientRackId);
+        var target = CreateStandaloneTarget(clientRackId, out var multiplexer);
         var msg = Message.Create(0, CommandFlags.PreferReplica, RedisCommand.GET, GetRedisKey(0));
 
         var endPoint = target.Select(msg, true);
 
         Assert.Contains<EndPoint>(endPoint?.EndPoint!, readNodes.Split(',').Select(IPEndPoint.Parse).Cast<EndPoint>().ToArray());
+
+        multiplexer.ClearFakeEndPoints();
     }
 
     [Theory]
@@ -158,12 +162,14 @@ public class RackAwarenessServerSelectionStrategyTests : TestBase
     [InlineData("1f", "172.16.1.2,172.16.1.3")]
     public void SelectServer_Standalone_PreferReplica_NoMatchedRackId(string clientRackId, string readNodes)
     {
-        var target = CreateStandaloneTarget(clientRackId);
+        var target = CreateStandaloneTarget(clientRackId, out var multiplexer);
         var msg = Message.Create(0, CommandFlags.PreferReplica, RedisCommand.GET, GetRedisKey(0));
 
         var endPoint = target.AnyServerWithRack(ServerType.Standalone, 0, RedisCommand.GET, CommandFlags.PreferReplica, true);
 
         Assert.Contains<EndPoint>(endPoint?.EndPoint!, readNodes.Split(',').Select(IPEndPoint.Parse).Cast<EndPoint>().ToArray());
+
+        multiplexer.ClearFakeEndPoints();
     }
     [Theory]
     [InlineData("1d", "172.16.1.2,172.16.1.3")]
@@ -171,7 +177,7 @@ public class RackAwarenessServerSelectionStrategyTests : TestBase
     [InlineData("1f", "172.16.1.2,172.16.1.3")]
     public void SelectServer_Standalone_PreferReplica_NoMatchedRackId_Random(string clientRackId, string readNodes)
     {
-        var target = CreateStandaloneTarget(clientRackId);
+        var target = CreateStandaloneTarget(clientRackId, out var multiplexer);
         var msg = Message.Create(0, CommandFlags.PreferReplica, RedisCommand.GET, GetRedisKey(0));
 
         var endPoint = target.AnyServerWithRack(ServerType.Standalone, 0, RedisCommand.GET, CommandFlags.PreferReplica, true);
@@ -180,6 +186,8 @@ public class RackAwarenessServerSelectionStrategyTests : TestBase
         Assert.NotEqual(endPoint, endPoint2);
         Assert.Contains<EndPoint>(endPoint?.EndPoint!, readNodes.Split(',').Select(IPEndPoint.Parse).Cast<EndPoint>().ToArray());
         Assert.Contains<EndPoint>(endPoint2?.EndPoint!, readNodes.Split(',').Select(IPEndPoint.Parse).Cast<EndPoint>().ToArray());
+
+        multiplexer.ClearFakeEndPoints();
     }
     [Theory]
     [InlineData("1d", "172.16.1.2,172.16.1.3")]
@@ -187,7 +195,7 @@ public class RackAwarenessServerSelectionStrategyTests : TestBase
     [InlineData("1f", "172.16.1.2,172.16.1.3")]
     public void SelectServer_Standalone_DemandReplica_NoMatchedRackId_Random(string clientRackId, string readNodes)
     {
-        var target = CreateStandaloneTarget(clientRackId);
+        var target = CreateStandaloneTarget(clientRackId, out var multiplexer);
         var msg = Message.Create(0, CommandFlags.DemandReplica, RedisCommand.GET, GetRedisKey(0));
 
         var endPoint = target.AnyServerWithRack(ServerType.Standalone, 0, RedisCommand.GET, CommandFlags.DemandReplica, true);
@@ -196,6 +204,8 @@ public class RackAwarenessServerSelectionStrategyTests : TestBase
         Assert.NotEqual(endPoint, endPoint2);
         Assert.Contains<EndPoint>(endPoint?.EndPoint!, readNodes.Split(',').Select(IPEndPoint.Parse).Cast<EndPoint>().ToArray());
         Assert.Contains<EndPoint>(endPoint2?.EndPoint!, readNodes.Split(',').Select(IPEndPoint.Parse).Cast<EndPoint>().ToArray());
+
+        multiplexer.ClearFakeEndPoints();
     }
 
     [Theory]
@@ -207,17 +217,19 @@ public class RackAwarenessServerSelectionStrategyTests : TestBase
     [InlineData("1f", "172.16.1.2,172.16.1.3")]
     public void SelectServer_Standalone_DemandReplica(string clientRackId, string readNodes)
     {
-        var target = CreateStandaloneTarget(clientRackId);
+        var target = CreateStandaloneTarget(clientRackId, out var multiplexer);
         var msg = Message.Create(0, CommandFlags.DemandReplica, RedisCommand.GET, GetRedisKey(0));
 
         var endPoint = target.Select(msg, true);
 
         Assert.Contains<EndPoint>(endPoint?.EndPoint!, readNodes.Split(',').Select(IPEndPoint.Parse).Cast<EndPoint>().ToArray());
+
+        multiplexer.ClearFakeEndPoints();
     }
 
     private RackAwarenessServerSelectionStrategy CreateClusterTarget(string clientRackId)
     {
-        var multiplexer = Create(log: Writer).UnderlyingMultiplexer;
+        var multiplexer = Create(shared: false, log: Writer).UnderlyingMultiplexer;
         multiplexer.RawConfig.RackAwareness = new MyRackAwareness(clientRackId);
 
         var testBridge = multiplexer.GetServerSnapshot()[0].GetBridge(ConnectionType.Interactive, true)!;
@@ -226,19 +238,19 @@ public class RackAwarenessServerSelectionStrategyTests : TestBase
         {
             ServerType = ServerType.Cluster,
         };
-        var serverMainEndPoint = new ServerEndPoint(multiplexer, IPEndPoint.Parse("172.16.1.1")).WithBridge(testBridge);
+        var serverMainEndPoint = new ServerEndPoint(multiplexer, IPEndPoint.Parse("172.16.1.1")).WithBridge(testBridge).WithRackId("1a");
         var serverReplicaEndPoints = new List<ServerEndPoint>
         {
-            new ServerEndPoint(multiplexer, IPEndPoint.Parse("172.16.1.2")) { IsReplica = true }.WithBridge(testBridge),
-            new ServerEndPoint(multiplexer, IPEndPoint.Parse("172.16.1.3")) { IsReplica = true }.WithBridge(testBridge),
+            new ServerEndPoint(multiplexer, IPEndPoint.Parse("172.16.1.2")) { IsReplica = true }.WithBridge(testBridge).WithRackId("1b"),
+            new ServerEndPoint(multiplexer, IPEndPoint.Parse("172.16.1.3")) { IsReplica = true }.WithBridge(testBridge).WithRackId("1c"),
         };
         serverMainEndPoint.Replicas = serverReplicaEndPoints.ToArray();
 
-        var serverMainEndPoint2 = new ServerEndPoint(multiplexer, IPEndPoint.Parse("172.16.2.1")).WithBridge(testBridge);
+        var serverMainEndPoint2 = new ServerEndPoint(multiplexer, IPEndPoint.Parse("172.16.2.1")).WithBridge(testBridge).WithRackId("1c");
         var serverReplicaEndPoints2 = new List<ServerEndPoint>
         {
-            new ServerEndPoint(multiplexer, IPEndPoint.Parse("172.16.2.2")) { IsReplica = true }.WithBridge(testBridge),
-            new ServerEndPoint(multiplexer, IPEndPoint.Parse("172.16.2.3")) { IsReplica = true }.WithBridge(testBridge),
+            new ServerEndPoint(multiplexer, IPEndPoint.Parse("172.16.2.2")) { IsReplica = true }.WithBridge(testBridge).WithRackId("1b"),
+            new ServerEndPoint(multiplexer, IPEndPoint.Parse("172.16.2.3")) { IsReplica = true }.WithBridge(testBridge).WithRackId("1a"),
         };
         serverMainEndPoint2.Replicas = serverReplicaEndPoints2.ToArray();
 
@@ -248,9 +260,9 @@ public class RackAwarenessServerSelectionStrategyTests : TestBase
         return target;
     }
 
-    private RackAwarenessServerSelectionStrategy CreateStandaloneTarget(string clientRackId)
+    private RackAwarenessServerSelectionStrategy CreateStandaloneTarget(string clientRackId, out ConnectionMultiplexer multiplexer)
     {
-        var multiplexer = Create(shared: false, log: Writer).UnderlyingMultiplexer;
+        multiplexer = Create(shared: false, log: Writer).UnderlyingMultiplexer;
         multiplexer.RawConfig.RackAwareness = new MyRackAwareness(clientRackId);
 
         var testBridge = multiplexer.GetServerSnapshot()[0].GetBridge(ConnectionType.Interactive, true)!;
@@ -259,9 +271,9 @@ public class RackAwarenessServerSelectionStrategyTests : TestBase
         {
             ServerType = ServerType.Standalone,
         };
-        multiplexer.GetServerEndPoint(IPEndPoint.Parse("172.16.1.1"), activate: false).WithBridge(testBridge);
-        multiplexer.GetServerEndPoint(IPEndPoint.Parse("172.16.1.2")).WithBridge(testBridge).WithReplica();
-        multiplexer.GetServerEndPoint(IPEndPoint.Parse("172.16.1.3")).WithBridge(testBridge).WithReplica();
+        multiplexer.GetServerEndPoint(IPEndPoint.Parse("172.16.1.1"), activate: false).WithBridge(testBridge).WithRackId("1a");
+        multiplexer.GetServerEndPoint(IPEndPoint.Parse("172.16.1.2"), activate: false).WithBridge(testBridge).WithReplica().WithRackId("1b");
+        multiplexer.GetServerEndPoint(IPEndPoint.Parse("172.16.1.3"), activate: false).WithBridge(testBridge).WithReplica().WithRackId("1c");
 
         return target;
     }
@@ -281,6 +293,27 @@ internal static class ServerEndPointExtensions
         serverEndPoint.IsReplica = true;
 
         return serverEndPoint;
+    }
+    internal static ServerEndPoint WithRackId(this ServerEndPoint serverEndPoint, string? rackId)
+    {
+        serverEndPoint.RackId = rackId;
+
+        return serverEndPoint;
+    }
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "servers")]
+    private static extern ref Hashtable GetServer(ConnectionMultiplexer multiplexer);
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_serverSnapshot")]
+    private static extern ref ConnectionMultiplexer.ServerSnapshot GetServerSnapshot(ConnectionMultiplexer multiplexer);
+
+    internal static void ClearFakeEndPoints(this ConnectionMultiplexer multiplexer)
+    {
+        var server = GetServer(multiplexer);
+        server.Remove(IPEndPoint.Parse("172.16.1.1"));
+        server.Remove(IPEndPoint.Parse("172.16.1.2"));
+        server.Remove(IPEndPoint.Parse("172.16.1.3"));
+
+        // var serverShapshot = GetServerSnapshot(multiplexer);
+        // serverShapshot
     }
 }
 #endif

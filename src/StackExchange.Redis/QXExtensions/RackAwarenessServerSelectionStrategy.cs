@@ -22,12 +22,11 @@ public interface IRackAwareness
     string? GetClientRackId();
 
     /// <summary>
-    /// Check if the node is in the same rack.
+    /// Get the rack id for the redis server node.
     /// </summary>
-    /// <param name="nodeEndPoint">The redis node.</param>
-    /// <param name="multiplexer">The multiplexer.</param>
-    /// <returns> The client and redis node is in same rack range. </returns>
-    bool? IsInSameRack(EndPoint nodeEndPoint, ConnectionMultiplexer multiplexer);
+    /// <param name="server">Redis server node.</param>
+    /// <returns>The rack id of the server.</returns>
+    string? GetRackId(IServer server);
 #pragma warning restore RS0016 // Add public types and members to the declared API
 }
 
@@ -74,6 +73,7 @@ internal sealed class RackAwarenessServerSelectionStrategy : ServerSelectionStra
         return Any(command, flags, allowDisconnected);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private ServerEndPoint? FindRackEndPoint(ServerEndPoint mainEndpoint, RedisCommand command, bool anyRack, bool allowDisconnected)
     {
         var replicas = mainEndpoint.Replicas;
@@ -103,6 +103,7 @@ internal sealed class RackAwarenessServerSelectionStrategy : ServerSelectionStra
         return fallback;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private ServerEndPoint? Any(RedisCommand command, CommandFlags flags, bool allowDisconnected) => AnyServerWithRack(ServerType, (uint)Interlocked.Increment(ref anyStartOffset), command, flags, allowDisconnected);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -111,7 +112,11 @@ internal sealed class RackAwarenessServerSelectionStrategy : ServerSelectionStra
         var tmp = multiplexer.GetServerSnapshot();
         int len = tmp.Length;
         ServerEndPoint? fallback = null;
-        ServerEndPoint? fallback2 = null;
+        ServerEndPoint? fallback2 = null; // Higher priority than fallback.
+                                          // like PreferReplica on:
+                                          // Replica(matched Rack)    will directly return
+                                          // Master(matched rack)     than return
+                                          // Replica(unmatched rack)  than return
         for (int i = 0; i < len; i++)
         {
             var server = tmp[(int)(((uint)i + startOffset) % len)];
@@ -162,7 +167,13 @@ internal sealed class RackAwarenessServerSelectionStrategy : ServerSelectionStra
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool? IsInSameRack(ServerEndPoint endpoint)
     {
-        // some logic to determine if the endpoint is in the same rack
-        return rackAwareness.IsInSameRack(endpoint.EndPoint, multiplexer);
+        var clientRackId = rackAwareness.GetClientRackId();
+        if (string.IsNullOrEmpty(clientRackId) || string.IsNullOrEmpty(endpoint.RackId))
+        {
+            return default;
+        }
+        return clientRackId == endpoint.RackId;
+
+        // return rackAwareness.IsInSameRack(endpoint.EndPoint, multiplexer);
     }
 }
