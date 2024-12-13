@@ -8,7 +8,9 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+
 using Microsoft.Extensions.Logging;
+
 using static StackExchange.Redis.PhysicalBridge;
 
 namespace StackExchange.Redis
@@ -69,6 +71,8 @@ namespace StackExchange.Redis
                     serverType = ServerType.Envoyproxy;
                     break;
             }
+
+            RackId = Multiplexer.RawConfig.RackAwareness?.GetRackId(new RedisServer(Multiplexer, this, null));
         }
 
         public EndPoint EndPoint { get; }
@@ -217,7 +221,7 @@ namespace StackExchange.Redis
             get => writeEverySeconds;
             set => SetConfig(ref writeEverySeconds, value);
         }
-
+        public string? RackId { get; internal set; }
         internal ConnectionMultiplexer Multiplexer { get; }
 
         public void Dispose()

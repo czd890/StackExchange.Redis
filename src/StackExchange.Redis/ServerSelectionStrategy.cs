@@ -6,7 +6,7 @@ using System.Threading;
 
 namespace StackExchange.Redis
 {
-    internal sealed class ServerSelectionStrategy
+    internal class ServerSelectionStrategy
     {
         public const int NoSlot = -1, MultipleSlots = -2;
         private const int RedisClusterSlotCount = 16384;
@@ -46,10 +46,10 @@ namespace StackExchange.Redis
             0x6e17, 0x7e36, 0x4e55, 0x5e74, 0x2e93, 0x3eb2, 0x0ed1, 0x1ef0,
         };
 
-        private readonly ConnectionMultiplexer multiplexer;
-        private int anyStartOffset;
+        protected readonly ConnectionMultiplexer multiplexer;
+        protected int anyStartOffset;
 
-        private ServerEndPoint[]? map;
+        protected ServerEndPoint[]? map;
 
         public ServerSelectionStrategy(ConnectionMultiplexer multiplexer) => this.multiplexer = multiplexer;
 
@@ -143,12 +143,12 @@ namespace StackExchange.Redis
                     slot = message.GetHashSlot(this);
                     if (slot == MultipleSlots) throw ExceptionFactory.MultiSlot(multiplexer.RawConfig.IncludeDetailInExceptions, message);
                     break;
-                /* just shown for completeness
-                case ServerType.Standalone: // don't use sharding
-                case ServerType.Envoyproxy: // defer to the proxy; see #2426
-                default: // unknown scenario; defer to the server
-                    break;
-                */
+                    /* just shown for completeness
+                    case ServerType.Standalone: // don't use sharding
+                    case ServerType.Envoyproxy: // defer to the proxy; see #2426
+                    default: // unknown scenario; defer to the server
+                        break;
+                    */
             }
             return Select(slot, message.Command, message.Flags, allowDisconnected);
         }
@@ -279,7 +279,7 @@ namespace StackExchange.Redis
         private ServerEndPoint? Any(RedisCommand command, CommandFlags flags, bool allowDisconnected) =>
             multiplexer.AnyServer(ServerType, (uint)Interlocked.Increment(ref anyStartOffset), command, flags, allowDisconnected);
 
-        private static ServerEndPoint? FindPrimary(ServerEndPoint endpoint, RedisCommand command)
+        protected static ServerEndPoint? FindPrimary(ServerEndPoint endpoint, RedisCommand command)
         {
             ServerEndPoint? cursor = endpoint;
             int max = 5;
@@ -293,7 +293,7 @@ namespace StackExchange.Redis
             return null;
         }
 
-        private static ServerEndPoint? FindReplica(ServerEndPoint endpoint, RedisCommand command, bool allowDisconnected = false)
+        protected static ServerEndPoint? FindReplica(ServerEndPoint endpoint, RedisCommand command, bool allowDisconnected = false)
         {
             if (endpoint.IsReplica && endpoint.IsSelectable(command, allowDisconnected)) return endpoint;
 
@@ -322,7 +322,7 @@ namespace StackExchange.Redis
             return arr;
         }
 
-        private ServerEndPoint? Select(int slot, RedisCommand command, CommandFlags flags, bool allowDisconnected)
+        protected virtual ServerEndPoint? Select(int slot, RedisCommand command, CommandFlags flags, bool allowDisconnected)
         {
             // Only interested in primary/replica preferences
             flags = Message.GetPrimaryReplicaFlags(flags);
