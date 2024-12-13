@@ -10,6 +10,16 @@ using StackExchange.Redis.QXExtensions;
 
 Console.WriteLine("Hello, World!");
 
+await StandloneReplicaTestAsync();
+static async Task StandloneReplicaTestAsync()
+{
+    var options = ConfigurationOptions.Parse("forex.jgsyzg.ng.0001.use1.cache.amazonaws.com:14533");
+    var conn = await StackExchange.Redis.ConnectionMultiplexer.ConnectAsync(options);
+    // await conn.ConfigureAsync();
+    var c = await conn.GetDatabase().StringGetAsync("249:IQDMXV", CommandFlags.DemandReplica);
+    Console.WriteLine(c);
+}
+
 var options = ConfigurationOptions.Parse("staging-new.jgsyzg.clustercfg.use1.cache.amazonaws.com:13983,connectTimeout=30000");
 var rackAwareness = new RackAwarenessImpl();
 options.RackAwareness = rackAwareness;
@@ -95,22 +105,6 @@ public class RackAwarenessImpl : IRackAwareness
 {
     public RackAwarenessImpl()
     {
-        var localIps = NetworkInterface.GetAllNetworkInterfaces()
-            .Where(network => network.OperationalStatus == OperationalStatus.Up)
-            .Select(network => network.GetIPProperties())
-            .OrderByDescending(properties => properties.GatewayAddresses.Count)
-            .SelectMany(properties => properties.UnicastAddresses)
-            .Where(address => (!IPAddress.IsLoopback(address.Address)) && address.Address.AddressFamily == AddressFamily.InterNetwork)
-            .Select(address => address.Address)
-            .ToArray();
-
-        var localIp = localIps.FirstOrDefault(ip => IsInSubnet(ip, "172.0.0.0/8") || IsInSubnet(ip, "10.0.0.0/8")) ?? localIps.FirstOrDefault();
-
-        if (localIp is not null)
-        {
-            _clientRackId = GetRackId(localIp);
-        }
-        // debug code
         _clientRackId = "us-east-1d";
     }
     private readonly string? _clientRackId;
@@ -123,32 +117,6 @@ public class RackAwarenessImpl : IRackAwareness
         { "us-east-1d", "172.16.224.0/20" },
         { "us-east-1e", "172.16.240.0/20" },
     };
-    private Dictionary<EndPoint, string?> _cached_readonly = new();
-    private readonly ConcurrentDictionary<EndPoint, string?> _cached = new();
-    public bool? IsInSameRack(EndPoint nodeEndPoint, ConnectionMultiplexer multiplexer)
-    {
-        if (string.IsNullOrEmpty(_clientRackId)) return default;
-        if (_cached_readonly.TryGetValue(nodeEndPoint, out var rackId))
-        {
-            if (string.IsNullOrEmpty(rackId)) return default;
-
-            Console.WriteLine($"node '{nodeEndPoint.ToString()}' is in '{rackId}', client is in '{_clientRackId}'");
-            return rackId == _clientRackId;
-        }
-
-        var ip = GetIpAddress(nodeEndPoint);
-
-        _cached.TryAdd(nodeEndPoint, ip is null ? default : GetRackId(ip));
-        _cached_readonly = new(_cached);
-
-        if (_cached_readonly.TryGetValue(nodeEndPoint, out rackId))
-        {
-            if (string.IsNullOrEmpty(rackId)) return default;
-            Console.WriteLine($"node '{nodeEndPoint.ToString()}' is in '{rackId}', client is in '{_clientRackId}'");
-            return rackId == _clientRackId;
-        }
-        return default;
-    }
     public string? GetRackId(EndPoint endPoint)
     {
         var ip = GetIpAddress(endPoint);
@@ -190,4 +158,6 @@ public class RackAwarenessImpl : IRackAwareness
         }
         return default;
     }
+
+    public string? GetRackId(IServer server) => GetRackId(server.EndPoint);
 }
