@@ -3,9 +3,9 @@
     <Nullable>enable</Nullable>
     <!-- extend the default lib targets for the main lib; mostly because of "vectors" -->
     <TargetFrameworks>net461;netstandard2.0;net472;netcoreapp3.1;net6.0;net8.0</TargetFrameworks>
-    <Description>High performance Redis client, incorporating both synchronous and asynchronous usage.</Description>
-    <AssemblyName>StackExchange.Redis</AssemblyName>
-    <AssemblyTitle>StackExchange.Redis</AssemblyTitle>
+    <Description>High performance Redis client, Improved the rack/zone awareness feature.</Description>
+    <AssemblyName>QX.StackExchange.Redis</AssemblyName>
+    <AssemblyTitle>QX.StackExchange.Redis</AssemblyTitle>
     <PackageId>QX.StackExchange.Redis</PackageId>
     <PackageTags>Async;Redis;Cache;PubSub;Messaging</PackageTags>
     <SignAssembly>true</SignAssembly>
@@ -25,7 +25,7 @@
 
     <!-- net461 needs this for OSPlatform et al -->
     <PackageReference Include="System.Runtime.InteropServices.RuntimeInformation" Condition="'$(TargetFramework)' == 'net461' " />
-    
+
     <!-- netfx needs this for ZipArchive -->
     <PackageReference Include="System.IO.Compression" Condition="'$(TargetFramework)' == 'net472' or '$(TargetFramework)' == 'net461' " />
   </ItemGroup>
